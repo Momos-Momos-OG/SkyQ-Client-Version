@@ -1,165 +1,315 @@
 package skyq.view;
 
+import skyq.dao.AvionDAO;
 import skyq.dao.EquipajeDAO;
 import skyq.dao.PasajeroDAO;
+import skyq.logic.ColaAbordaje;
+import skyq.logic.DesembarqueManager;
+import skyq.model.Avion;
 import skyq.model.Equipaje;
 import skyq.model.Pasajero;
 
-import javax.swing.JButton;
-import javax.swing.JComboBox;
-import javax.swing.JLabel;
-import javax.swing.JOptionPane;
-import javax.swing.JPanel;
-import javax.swing.JTextField;
-import java.awt.GridBagConstraints;
-import java.awt.GridBagLayout;
-import java.awt.Insets;
+import javax.swing.*;
+import javax.swing.border.EmptyBorder;
+import javax.swing.table.DefaultTableModel;
+import java.awt.*;
 import java.time.LocalDateTime;
+import java.util.List;
 
 public class PanelCheckIn extends JPanel {
 
-    private JTextField txtNombre;
-    private JTextField txtAsiento;
+    private JComboBox<String> comboVuelosFlota;
+    private JPanel panelCentralWorkspace;
+    private CardLayout cardLayoutModos;
+
+    // Campos del flujo Check-In
+    private JTextField txtNombrePasajero, txtPesoEquipaje;
     private JComboBox<String> comboPrioridad;
-    private JTextField txtPesoEquipaje;
-    private JButton btnRegistrar;
+    private JLabel lblAsientoAsignado;
+    private JPanel contenedorDinamicoCabina;
+    private String asientoElegido = "";
+
+    // Componentes de las tablas de Abordaje/Desembarque
+    private DefaultTableModel modeloTablaFlujo;
+    private JTable tablaFlujoOperaciones;
+    private JLabel lblTituloSeccionCambiante;
+
+    private final AvionDAO avionDAO = new AvionDAO();
+    private final PasajeroDAO pasajeroDAO = new PasajeroDAO();
+    private final EquipajeDAO equipajeDAO = new EquipajeDAO();
 
     public PanelCheckIn() {
+        setBackground(EstiloUI.FONDO_DARK_PRINCIPAL);
+        setBorder(new EmptyBorder(20, 20, 20, 20));
+        setLayout(new BorderLayout(20, 20));
         initComponents();
+        recargarVuelosDesdeFlota();
     }
 
     private void initComponents() {
-        setLayout(new GridBagLayout());
+        // ==========================================
+        // 🛫 NORTE: BARRA SUPERIOR SELECCIÓN DE VUELO
+        // ==========================================
+        JPanel panelNorteSeleccion = new JPanel(new FlowLayout(FlowLayout.LEFT, 15, 12));
+        panelNorteSeleccion.setBackground(EstiloUI.FONDO_TARJETA);
+        panelNorteSeleccion.setBorder(EstiloUI.BORDE_COMPONENTE);
 
-        JLabel lblNombre = new JLabel("Nombre del pasajero:");
-        JLabel lblAsiento = new JLabel("Número de asiento:");
-        JLabel lblPrioridad = new JLabel("Prioridad:");
-        JLabel lblPeso = new JLabel("Peso del equipaje:");
+        JLabel lblSelector = new JLabel("OPERANDO FLOTA EN CONTEXTO:");
+        lblSelector.setForeground(Color.CYAN);
+        lblSelector.setFont(EstiloUI.FUENTE_SUBTITULO);
 
-        txtNombre = new JTextField(18);
-        txtAsiento = new JTextField(18);
+        comboVuelosFlota = new JComboBox<>();
+        comboVuelosFlota.setPreferredSize(new Dimension(280, 32));
+        comboVuelosFlota.setBackground(EstiloUI.FONDO_DARK_PRINCIPAL);
+        comboVuelosFlota.setForeground(EstiloUI.TEXTO_BLANCO);
+
+        panelNorteSeleccion.add(lblSelector);
+        panelNorteSeleccion.add(comboVuelosFlota);
+        add(panelNorteSeleccion, BorderLayout.NORTH);
+
+        // ==========================================
+        // 🎛️ OESTE: BARRA LATERAL SUB-NVEGACIÓN (FIGMA)
+        // ==========================================
+        JPanel sidebarModos = new JPanel(new GridLayout(3, 1, 0, 15));
+        sidebarModos.setBackground(EstiloUI.FONDO_DARK_PRINCIPAL);
+        sidebarModos.setPreferredSize(new Dimension(180, 500));
+
+        JButton btnModoCheckIn = crearBotonSidebar("1. Registro / Check-In", true);
+        JButton btnModoAbordaje = crearBotonSidebar("2. Cola de Abordaje", false);
+        JButton btnModoDesembarque = crearBotonSidebar("3. Desembarque", false);
+
+        sidebarModos.add(btnModoCheckIn);
+        sidebarModos.add(btnModoAbordaje);
+        sidebarModos.add(btnModoDesembarque);
+        add(sidebarModos, BorderLayout.WEST);
+
+        // ==========================================
+        // 🖥️ CENTRO: ESPACIO DE TRABAJO (CARDLAYOUT)
+        // ==========================================
+        cardLayoutModos = new CardLayout();
+        panelCentralWorkspace = new JPanel(cardLayoutModos);
+        panelCentralWorkspace.setBackground(EstiloUI.FONDO_DARK_PRINCIPAL);
+
+        panelCentralWorkspace.add(construirFormularioCheckInVisual(), "VISTA_CHECKIN");
+        panelCentralWorkspace.add(construirListadosTabularesDeVuelo(), "VISTA_TABLAS");
+
+        add(panelCentralWorkspace, BorderLayout.CENTER);
+
+        // Enlace interactivo de botones del menú lateral
+        btnModoCheckIn.addActionListener(e -> {
+            alternarEstiloMenu(btnModoCheckIn, btnModoAbordaje, btnModoDesembarque);
+            cardLayoutModos.show(panelCentralWorkspace, "VISTA_CHECKIN");
+            refrescarPlanoAvion();
+        });
+
+        btnModoAbordaje.addActionListener(e -> {
+            alternarEstiloMenu(btnModoAbordaje, btnModoCheckIn, btnModoDesembarque);
+            lblTituloSeccionCambiante.setText("COLA DE ABORDAJE ACTIVA - ENFOQUE: COMERCIAL + FIFO");
+            cardLayoutModos.show(panelCentralWorkspace, "VISTA_TABLAS");
+            calcularColaAbordajeDinamica();
+        });
+
+        btnModoDesembarque.addActionListener(e -> {
+            alternarEstiloMenu(btnModoDesembarque, btnModoCheckIn, btnModoAbordaje);
+            lblTituloSeccionCambiante.setText("SECUENCIA CRÍTICA DE DESEMBARQUE - PRIORIDAD: ADELANTE HACIA ATRÁS");
+            cardLayoutModos.show(panelCentralWorkspace, "VISTA_TABLAS");
+            calcularDesembarqueDinamico();
+        });
+
+        comboVuelosFlota.addActionListener(e -> refrescarPlanoAvion());
+    }
+
+    private JPanel construirFormularioCheckInVisual() {
+        JPanel splitPanel = new JPanel(new BorderLayout(20, 0));
+        splitPanel.setBackground(EstiloUI.FONDO_DARK_PRINCIPAL);
+
+        // Tarjeta del Formulario
+        JPanel formCard = new JPanel(new GridBagLayout());
+        formCard.setBackground(EstiloUI.FONDO_TARJETA);
+        formCard.setPreferredSize(new Dimension(360, 500));
+        formCard.setBorder(BorderFactory.createCompoundBorder(EstiloUI.BORDE_COMPONENTE, new EmptyBorder(20, 15, 20, 15)));
+
+        txtNombrePasajero = crearFieldEstilizado();
+        txtPesoEquipaje = crearFieldEstilizado();
         comboPrioridad = new JComboBox<>(new String[]{"1", "2", "3"});
-        txtPesoEquipaje = new JTextField(18);
-        btnRegistrar = new JButton("Registrar Check-In");
+        comboPrioridad.setBackground(EstiloUI.FONDO_DARK_PRINCIPAL); comboPrioridad.setForeground(EstiloUI.TEXTO_BLANCO);
 
-        GridBagConstraints constraints = new GridBagConstraints();
-        constraints.insets = new Insets(8, 8, 8, 8);
-        constraints.anchor = GridBagConstraints.WEST;
+        lblAsientoAsignado = new JLabel("[ Seleccione en el Mapa ]");
+        lblAsientoAsignado.setForeground(Color.CYAN); lblAsientoAsignado.setFont(EstiloUI.FUENTE_SUBTITULO);
 
-        constraints.gridx = 0;
-        constraints.gridy = 0;
-        add(lblNombre, constraints);
+        JButton btnEnviarCheckIn = new JButton("EMITIR PASE DE ABORDAJE");
+        btnEnviarCheckIn.setBackground(EstiloUI.AZUL_ACCENT); btnEnviarCheckIn.setForeground(EstiloUI.TEXTO_BLANCO); btnEnviarCheckIn.setBorderPainted(false); btnEnviarCheckIn.setFont(EstiloUI.FUENTE_COMPONENTE);
 
-        constraints.gridx = 1;
-        add(txtNombre, constraints);
+        GridBagConstraints g = new GridBagConstraints();
+        g.insets = new Insets(10, 5, 10, 5); g.fill = GridBagConstraints.HORIZONTAL; g.anchor = GridBagConstraints.WEST;
 
-        constraints.gridx = 0;
-        constraints.gridy = 1;
-        add(lblAsiento, constraints);
+        g.gridx = 0; g.gridy = 0; g.gridwidth = 2;
+        JLabel lblTitle = new JLabel("REGISTRO DE PASAJEROS"); lblTitle.setForeground(EstiloUI.TEXTO_BLANCO); lblTitle.setFont(EstiloUI.FUENTE_TITULO); formCard.add(lblTitle, g);
 
-        constraints.gridx = 1;
-        add(txtAsiento, constraints);
+        g.gridwidth = 1;
+        g.gridx = 0; g.gridy = 1; formCard.add(new JLabel("Nombre Pasajero:"), g); g.gridx = 1; formCard.add(txtNombrePasajero, g);
+        g.gridx = 0; g.gridy = 2; formCard.add(new JLabel("Categoría Vuelo:"), g); g.gridx = 1; formCard.add(comboPrioridad, g);
+        g.gridx = 0; g.gridy = 3; formCard.add(new JLabel("Butaca Asignada:"), g); g.gridx = 1; formCard.add(lblAsientoAsignado, g);
+        g.gridx = 0; g.gridy = 4; formCard.add(new JLabel("Peso Maleta (kg):"), g); g.gridx = 1; formCard.add(txtPesoEquipaje, g);
+        g.gridx = 0; g.gridy = 5; g.gridwidth = 2; g.insets = new Insets(25, 5, 5, 5); formCard.add(btnEnviarCheckIn, g);
 
-        constraints.gridx = 0;
-        constraints.gridy = 2;
-        add(lblPrioridad, constraints);
+        for (Component comp : formCard.getComponents()) {
+            if (comp instanceof JLabel && comp != lblTitle && comp != lblAsientoAsignado) {
+                comp.setForeground(EstiloUI.TEXTO_MUTED); comp.setFont(EstiloUI.FUENTE_LABEL);
+            }
+        }
+        splitPanel.add(formCard, BorderLayout.WEST);
 
-        constraints.gridx = 1;
-        add(comboPrioridad, constraints);
+        // Tarjeta del Mapa de Asientos
+        contenedorDinamicoCabina = new JPanel(new BorderLayout());
+        contenedorDinamicoCabina.setBackground(EstiloUI.FONDO_TARJETA);
+        contenedorDinamicoCabina.setBorder(BorderFactory.createCompoundBorder(EstiloUI.BORDE_COMPONENTE, new EmptyBorder(15, 15, 15, 15)));
+        splitPanel.add(contenedorDinamicoCabina, BorderLayout.CENTER);
 
-        constraints.gridx = 0;
-        constraints.gridy = 3;
-        add(lblPeso, constraints);
+        comboPrioridad.addActionListener(e -> refrescarPlanoAvion());
+        btnEnviarCheckIn.addActionListener(e -> procesarGuardadoCheckIn());
 
-        constraints.gridx = 1;
-        add(txtPesoEquipaje, constraints);
-
-        constraints.gridx = 1;
-        constraints.gridy = 4;
-        add(btnRegistrar, constraints);
-
-        btnRegistrar.addActionListener(e -> registrarCheckIn());
+        return splitPanel;
     }
 
-    private void registrarCheckIn() {
-        String nombre = txtNombre.getText().trim();
-        String asiento = txtAsiento.getText().trim();
-        String prioridadTexto = (String) comboPrioridad.getSelectedItem();
+    private JPanel construirListadosTabularesDeVuelo() {
+        JPanel panelContenedorTabla = new JPanel(new BorderLayout(10, 12));
+        panelContenedorTabla.setBackground(EstiloUI.FONDO_TARJETA);
+        panelContenedorTabla.setBorder(BorderFactory.createCompoundBorder(EstiloUI.BORDE_COMPONENTE, new EmptyBorder(15, 15, 15, 15)));
+
+        lblTituloSeccionCambiante = new JLabel("MONITOR OPERATIVO DE CONTROL");
+        lblTituloSeccionCambiante.setForeground(EstiloUI.TEXTO_BLANCO);
+        lblTituloSeccionCambiante.setFont(EstiloUI.FUENTE_SUBTITULO);
+        panelContenedorTabla.add(lblTituloSeccionCambiante, BorderLayout.NORTH);
+
+        modeloTablaFlujo = new DefaultTableModel(new Object[]{"ID PASAJERO", "NOMBRE DEL PASAJERO", "ASIENTO", "PRIORIDAD", "TIMESTAMP REGISTRO"}, 0);
+        tablaFlujoOperaciones = new JTable(modeloTablaFlujo);
+        tablaFlujoOperaciones.setBackground(EstiloUI.FONDO_DARK_PRINCIPAL);
+        tablaFlujoOperaciones.setForeground(EstiloUI.TEXTO_BLANCO);
+        tablaFlujoOperaciones.setGridColor(new Color(48, 54, 61));
+
+        JScrollPane scrollPane = new JScrollPane(tablaFlujoOperaciones);
+        scrollPane.getViewport().setBackground(EstiloUI.FONDO_DARK_PRINCIPAL);
+        scrollPane.setBorder(BorderFactory.createEmptyBorder());
+        panelContenedorTabla.add(scrollPane, BorderLayout.CENTER);
+
+        return panelContenedorTabla;
+    }
+
+    private void recargarVuelosDesdeFlota() {
+        comboVuelosFlota.removeAllItems();
+        List<Avion> flota = avionDAO.obtenerAvionesFlota();
+        for (Avion a : flota) {
+            comboVuelosFlota.addItem(a.getMatricula() + " - " + a.getModelo());
+        }
+        if (flota.isEmpty()) {
+            comboVuelosFlota.addItem("HC-BXA - Configuración por Defecto");
+        }
+    }
+
+    private String obtenerMatriculaActiva() {
+        String item = (String) comboVuelosFlota.getSelectedItem();
+        if (item == null || item.contains("Defecto")) return "HC-BXA";
+        return item.split(" - ")[0];
+    }
+
+    private void refrescarPlanoAvion() {
+        String matricula = obtenerMatriculaActiva();
+        contenedorDinamicoCabina.removeAll();
+
+        // Se inicializa el mapa enviando de forma contextual la matrícula actual
+        MapaAsientosPanel planoRealTime = new MapaAsientosPanel(matricula, codigoAsiento -> {
+            // 🔥 CORREGIDO: Llamada segura al método unificado por matrícula y vuelo
+            if (pasajeroDAO.verificarAsientoOcupadoEnVuelo(codigoAsiento, matricula)) {
+                JOptionPane.showMessageDialog(this, "Esta butaca ya está ocupada en este vuelo.", "Validación", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            asientoElegido = codigoAsiento;
+            lblAsientoAsignado.setText("Asiento Seleccionado: " + codigoAsiento);
+        });
+
+        contenedorDinamicoCabina.add(planoRealTime, BorderLayout.CENTER);
+        contenedorDinamicoCabina.revalidate();
+        contenedorDinamicoCabina.repaint();
+    }
+
+    private void procesarGuardadoCheckIn() {
+        String nombre = txtNombrePasajero.getText().trim();
         String pesoTexto = txtPesoEquipaje.getText().trim();
+        String prioridadTexto = (String) comboPrioridad.getSelectedItem();
+        String matricula = obtenerMatriculaActiva();
 
-        if (nombre.isEmpty() || asiento.isEmpty() || prioridadTexto == null || prioridadTexto.trim().isEmpty() || pesoTexto.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "Complete todos los campos.", "Validación", JOptionPane.WARNING_MESSAGE);
+        if (nombre.isEmpty() || asientoElegido.isEmpty() || pesoTexto.isEmpty() || prioridadTexto == null) {
+            JOptionPane.showMessageDialog(this, "Complete todos los campos del pasajero.", "Validación", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
-        int prioridad;
-        double peso;
+        int prioridad = Integer.parseInt(prioridadTexto);
+        double peso = Double.parseDouble(pesoTexto);
 
-        try {
-            prioridad = Integer.parseInt(prioridadTexto);
-        } catch (NumberFormatException ex) {
-            JOptionPane.showMessageDialog(this, "La prioridad no es válida.", "Validación", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        try {
-            peso = Double.parseDouble(pesoTexto);
-        } catch (NumberFormatException ex) {
-            JOptionPane.showMessageDialog(this, "El peso debe ser un número.", "Validación", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        PasajeroDAO pasajeroDAO = new PasajeroDAO();
-        EquipajeDAO equipajeDAO = new EquipajeDAO();
-
-        if (pasajeroDAO.verificarAsientoOcupado(asiento)) {
-            JOptionPane.showMessageDialog(this, "El asiento ya está ocupado.", "Validación", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        double pesoMaximo;
-        if (prioridad == 1) {
-            pesoMaximo = 32.0;
-        } else if (prioridad == 2) {
-            pesoMaximo = 23.0;
-        } else {
-            pesoMaximo = 15.0;
-        }
-
+        double pesoMaximo = (prioridad == 1) ? 32.0 : (prioridad == 2) ? 23.0 : 15.0;
         if (peso > pesoMaximo) {
-            JOptionPane.showMessageDialog(this, "El equipaje excede el peso permitido para esta prioridad.", "Sobrepeso", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this, "El equipaje excede el peso permitido (" + pesoMaximo + "kg) para prioridad " + prioridad, "Sobrepeso", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
-        Pasajero pasajero = new Pasajero();
-        pasajero.setNombre(nombre);
-        pasajero.setNumAsiento(asiento);
-        pasajero.setNivelPrioridad(prioridad);
-        pasajero.setTimestampLlegada(LocalDateTime.now());
-
+        // 🔥 CORREGIDO: Llamada limpia al constructor extendido de 6 parámetros
+        Pasajero pasajero = new Pasajero(0, nombre, asientoElegido, prioridad, LocalDateTime.now(), matricula);
         int idPasajero = pasajeroDAO.insertarPasajeroYObtenerId(pasajero);
-        if (idPasajero <= 0) {
-            JOptionPane.showMessageDialog(this, "No se pudo registrar el pasajero.", "Error", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
 
-        Equipaje equipaje = new Equipaje();
-        equipaje.setIdPasajero(idPasajero);
-        equipaje.setPeso(peso);
-        equipaje.setEstado("Aceptado");
-
-        if (equipajeDAO.registrarEquipaje(equipaje)) {
-            JOptionPane.showMessageDialog(this, "Check-In registrado correctamente.", "Éxito", JOptionPane.INFORMATION_MESSAGE);
-            limpiarCampos();
-        } else {
-            JOptionPane.showMessageDialog(this, "El pasajero se guardó, pero no fue posible registrar el equipaje.", "Error", JOptionPane.ERROR_MESSAGE);
+        if (idPasajero > 0) {
+            Equipaje equipaje = new Equipaje(0, idPasajero, peso, "Aceptado");
+            if (equipajeDAO.registrarEquipaje(equipaje)) {
+                JOptionPane.showMessageDialog(this, "¡Pase de abordar emitido con éxito!", "Éxito", JOptionPane.INFORMATION_MESSAGE);
+                txtNombrePasajero.setText(""); txtPesoEquipaje.setText(""); asientoElegido = "";
+                lblAsientoAsignado.setText("[ Seleccione en el Mapa ]");
+                refrescarPlanoAvion();
+            }
         }
     }
 
-    private void limpiarCampos() {
-        txtNombre.setText("");
-        txtAsiento.setText("");
-        txtPesoEquipaje.setText("");
-        comboPrioridad.setSelectedIndex(0);
+    private void calcularColaAbordajeDinamica() {
+        modeloTablaFlujo.setRowCount(0);
+        // 🔥 CORREGIDO: Se filtra la cola consumiendo únicamente el contexto del vuelo seleccionado
+        List<Pasajero> base = pasajeroDAO.obtenerPasajerosPorVuelo(obtenerMatriculaActiva());
+        List<Pasajero> ordenados = new ColaAbordaje().organizarPasajeros(base);
+
+        for (Pasajero p : ordenados) {
+            modeloTablaFlujo.addRow(new Object[]{p.getIdPasajero(), p.getNombre(), p.getNumAsiento(), p.getNivelPrioridad(), p.getTimestampLlegada()});
+        }
+    }
+
+    private void calcularDesembarqueDinamico() {
+        modeloTablaFlujo.setRowCount(0);
+        // 🔥 CORREGIDO: Se filtra el desembarque consumiendo únicamente el contexto del vuelo seleccionado
+        List<Pasajero> base = pasajeroDAO.obtenerPasajerosPorVuelo(obtenerMatriculaActiva());
+        List<Pasajero> ordenados = new DesembarqueManager().ordenarPorAsiento(base);
+
+        for (Pasajero p : ordenados) {
+            modeloTablaFlujo.addRow(new Object[]{p.getIdPasajero(), p.getNombre(), p.getNumAsiento(), p.getNivelPrioridad(), p.getTimestampLlegada()});
+        }
+    }
+
+    private JTextField crearFieldEstilizado() {
+        JTextField f = new JTextField(15);
+        f.setBackground(EstiloUI.FONDO_DARK_PRINCIPAL); f.setForeground(EstiloUI.TEXTO_BLANCO); f.setCaretColor(EstiloUI.TEXTO_BLANCO); f.setBorder(EstiloUI.BORDE_COMPONENTE);
+        return f;
+    }
+
+    private JButton crearBotonSidebar(String texto, boolean activo) {
+        JButton b = new JButton(texto);
+        b.setPreferredSize(new Dimension(165, 42)); b.setFont(EstiloUI.FUENTE_COMPONENTE); b.setFocusPainted(false); b.setBorderPainted(false);
+        if (activo) {
+            b.setBackground(EstiloUI.AZUL_ACCENT); b.setForeground(EstiloUI.TEXTO_BLANCO);
+        } else {
+            b.setBackground(EstiloUI.GRIS_BOTON_PASIVO); b.setForeground(EstiloUI.TEXTO_MUTED);
+        }
+        return b;
+    }
+
+    private void alternarEstiloMenu(JButton sel, JButton b2, JButton b3) {
+        sel.setBackground(EstiloUI.AZUL_ACCENT); sel.setForeground(EstiloUI.TEXTO_BLANCO);
+        b2.setBackground(EstiloUI.GRIS_BOTON_PASIVO); b2.setForeground(EstiloUI.TEXTO_MUTED);
+        b3.setBackground(EstiloUI.GRIS_BOTON_PASIVO); b3.setForeground(EstiloUI.TEXTO_MUTED);
     }
 }
