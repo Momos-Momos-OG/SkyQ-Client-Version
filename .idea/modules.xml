@@ -3,7 +3,6 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/SkyQ.iml" filepath="$PROJECT_DIR$/SkyQ.iml" />
-      <module fileurl="file://$PROJECT_DIR$/skyq/skyq.iml" filepath="$PROJECT_DIR$/skyq/skyq.iml" />
     </modules>
   </component>
 </project>
