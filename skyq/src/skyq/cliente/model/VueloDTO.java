@@ -22,7 +22,12 @@ public class VueloDTO {
     private final String matricula;
 
     /**
-     * Construye un nuevo VueloDTO.
+     * Construye un nuevo VueloDTO con todos sus atributos requeridos para la cartelera.
+     *
+     * @param codigoVuelo el identificador alfanumérico del vuelo
+     * @param destino el destino final de llegada del vuelo
+     * @param fechaSalida la fecha y hora programadas para el despegue
+     * @param matricula el identificador único de la aeronave asignada
      */
     public VueloDTO(String codigoVuelo, String destino, String fechaSalida, String matricula) {
         this.codigoVuelo = codigoVuelo;
@@ -33,6 +38,8 @@ public class VueloDTO {
 
     /**
      * Obtiene el código del vuelo.
+     *
+     * @return el código alfanumérico único del vuelo
      */
     public String getCodigoVuelo() {
         return codigoVuelo;
@@ -40,6 +47,8 @@ public class VueloDTO {
 
     /**
      * Obtiene el destino.
+     *
+     * @return la ciudad o aeropuerto de destino final
      */
     public String getDestino() {
         return destino;
@@ -47,6 +56,8 @@ public class VueloDTO {
 
     /**
      * Obtiene la fecha y hora de salida programada.
+     *
+     * @return la fecha y hora de salida en formato de cadena
      */
     public String getFechaSalida() {
         return fechaSalida;
@@ -54,6 +65,8 @@ public class VueloDTO {
 
     /**
      * Obtiene la matrícula de la aeronave.
+     *
+     * @return el código de registro único de la aeronave asignada
      */
     public String getMatricula() {
         return matricula;

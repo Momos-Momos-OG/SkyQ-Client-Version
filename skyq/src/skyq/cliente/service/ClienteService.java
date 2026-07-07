@@ -25,6 +25,9 @@ public class ClienteService {
 
     /**
      * Recupera todos los vuelos que están actualmente programados.
+     *
+     * @return una lista de objetos VueloDTO con la información de los vuelos programados
+     * @throws Exception si ocurre algún error al acceder a la base de datos
      */
     public List<VueloDTO> obtenerVuelosProgramados() throws Exception {
         final String sql = "SELECT matricula, codigoVuelo, fechaSalida, destino FROM vuelos WHERE estado = 'Programado'";
@@ -48,6 +51,10 @@ public class ClienteService {
 
     /**
      * Recupera la configuración de distribución de asientos de la aeronave con la matrícula dada.
+     *
+     * @param matricula la matrícula de la aeronave de interés
+     * @return la distribución de asientos de cabina como una cadena con formato
+     * @throws Exception si ocurre algún error en la consulta JDBC
      */
     public String obtenerDistribucionAvion(String matricula) throws Exception {
         final String sql = "SELECT distribucion_clases FROM configuracion_asientos WHERE matricula = ?";
@@ -70,6 +77,10 @@ public class ClienteService {
 
     /**
      * Recupera el conjunto de asientos que están actualmente ocupados para la aeronave con la matrícula dada.
+     *
+     * @param matricula la matrícula de la aeronave de interés
+     * @return un conjunto de cadenas que contiene los códigos de asiento ocupados
+     * @throws Exception si ocurre algún error al consultar la base de datos
      */
     public Set<String> obtenerAsientosOcupados(String matricula) throws Exception {
         final String sql = "SELECT numAsiento FROM pasajero WHERE matricula = ?";
@@ -91,6 +102,11 @@ public class ClienteService {
      * Procesa una reserva para una lista de pasajeros en una única transacción.
      * Genera un PNR único, realiza la inserción por lotes de los registros de pasajeros y
      * confirma la transacción. Si ocurre algún error de base de datos, revierte los cambios.
+     *
+     * @param matricula la matrícula de la aeronave asignada al vuelo
+     * @param pasajeros la lista de pasajeros DTO a guardar en la base de datos
+     * @return la cadena del código PNR alfanumérico generado para la reserva
+     * @throws Exception si ocurre algún error durante la transacción o acceso a base de datos
      */
     public String procesarReservaTransaccional(String matricula, List<PasajeroDTO> pasajeros) throws Exception {
         if (pasajeros == null || pasajeros.isEmpty()) {
@@ -151,6 +167,8 @@ public class ClienteService {
 
     /**
      * Genera un registro de nombre de pasajero (PNR) alfanumérico aleatorio que comienza con 'SQ-'.
+     *
+     * @return el código alfanumérico generado de PNR
      */
     private String generarPNR() {
         String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -164,6 +182,9 @@ public class ClienteService {
     /**
      * Determina el nivel de prioridad basado en la clase de cabina seleccionada.
      * VIP corresponde a 1, Ejecutiva a 2, y otros (por ejemplo, Económica) a 3.
+     *
+     * @param claseTexto el nombre de la clase de cabina seleccionada
+     * @return el nivel de prioridad entero correspondiente
      */
     private int extraerPrioridad(String claseTexto) {
         if (claseTexto != null) {

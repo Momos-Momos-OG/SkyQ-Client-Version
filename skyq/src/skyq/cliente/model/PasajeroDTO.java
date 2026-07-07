@@ -23,7 +23,12 @@ public class PasajeroDTO {
     private String asiento;
 
     /**
-     * Construye un nuevo PasajeroDTO sin asiento asignado.
+     * Construye un nuevo PasajeroDTO sin asiento asignado para comenzar el proceso de reserva.
+     *
+     * @param nombre el nombre completo del pasajero
+     * @param tipo el tipo de pasajero (ej. Adulto, Niño)
+     * @param clase la clase de cabina elegida por el pasajero
+     * @param sillaRuedas el indicador de si el pasajero requiere asistencia de silla de ruedas
      */
     public PasajeroDTO(String nombre, String tipo, String clase, boolean sillaRuedas) {
         this.nombre = nombre;
@@ -35,6 +40,8 @@ public class PasajeroDTO {
 
     /**
      * Obtiene el nombre del pasajero.
+     *
+     * @return el nombre del pasajero
      */
     public String getNombre() {
         return nombre;
@@ -42,6 +49,8 @@ public class PasajeroDTO {
 
     /**
      * Obtiene el tipo de pasajero.
+     *
+     * @return el tipo del pasajero
      */
     public String getTipo() {
         return tipo;
@@ -49,6 +58,8 @@ public class PasajeroDTO {
 
     /**
      * Obtiene la clase de cabina.
+     *
+     * @return la clase del pasajero en el vuelo
      */
     public String getClase() {
         return clase;
@@ -56,6 +67,8 @@ public class PasajeroDTO {
 
     /**
      * Verifica si se requiere asistencia en silla de ruedas.
+     *
+     * @return true si requiere silla de ruedas, false en caso contrario
      */
     public boolean isSillaRuedas() {
         return sillaRuedas;
@@ -63,6 +76,8 @@ public class PasajeroDTO {
 
     /**
      * Obtiene el número de asiento asignado.
+     *
+     * @return el identificador del asiento, o null si aún no se ha asignado
      */
     public String getAsiento() {
         return asiento;
@@ -70,6 +85,8 @@ public class PasajeroDTO {
 
     /**
      * Asigna un asiento al pasajero.
+     *
+     * @param asiento el identificador del asiento a asignar
      */
     public void setAsiento(String asiento) {
         this.asiento = asiento;
