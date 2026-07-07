@@ -1,23 +1,21 @@
 package skyq.cliente.view;
 
-import skyq.cliente.db.ConexionBD;
+import skyq.cliente.model.PasajeroDTO;
+import skyq.cliente.service.ClienteService;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Random;
 import java.util.Set;
 
 /**
- * PanelReserva - Pantalla de reservas móvil con CardLayout interno para la cabina gráfica.
- * Implementación 100% libre de JTable, usando una lista de tarjetas dinámicas táctiles.
+ * PanelReserva - Pantalla de reservas móvil con un CardLayout interno
+ * para mostrar el mapa gráfico de asientos de cabina.
+ * Se adhiere estrictamente a MVC al delegar todas las operaciones de base de datos a
+ * ClienteService y utilizar PasajeroDTO.
  */
 public final class PanelReserva extends JPanel {
 
@@ -58,32 +56,18 @@ public final class PanelReserva extends JPanel {
     private JPanel panelContenedorMapa;
 
     // Estructura de datos en memoria para el grupo familiar
-    private final transient List<PasajeroTemporal> grupoFamiliar = new ArrayList<>();
+    private final transient List<PasajeroDTO> grupoFamiliar = new ArrayList<>();
     private int pasajeroEditandoIndex = -1;
 
     // Ocupación en BD del avión y clase seleccionada válida anterior
     private final transient Set<String> occupiedSeatsDb = new HashSet<>();
     private String            ultimoClaseValida = null;
 
+    private final transient ClienteService clienteService = new ClienteService();
+
     /**
-     * Representación temporal en memoria de un pasajero del grupo.
+     * Construye un nuevo panel PanelReserva.
      */
-    public static class PasajeroTemporal {
-        String nombre;
-        String tipo; // "Adulto" | "Niño"
-        String clase; // "VIP (1)" | "Ejecutiva (2)" | "Economica (3)"
-        boolean sillaRuedas;
-        String asiento; // nulo al inicio
-
-        public PasajeroTemporal(String nombre, String tipo, String clase, boolean sillaRuedas) {
-            this.nombre = nombre;
-            this.tipo = tipo;
-            this.clase = clase;
-            this.sillaRuedas = sillaRuedas;
-            this.asiento = null;
-        }
-    }
-
     @SuppressWarnings({"this-escape", "LeakingThisInConstructor"})
     public PanelReserva(VentanaCliente parent, String matricula, String codigoVuelo) {
         this.parent      = parent;
@@ -106,41 +90,29 @@ public final class PanelReserva extends JPanel {
         cardLayoutInterno.show(this, "VISTA_A");
     }
 
-    // Consulta la BD, obtiene la distribución de cabina y carga los asientos ocupados
+    /**
+     * Carga la distribución de la cabina de la aeronave y los asientos actualmente ocupados desde la capa de servicio.
+     */
     private void cargarConfiguracionAvion() {
-        String sql = "SELECT distribucion_clases FROM configuracion_asientos WHERE matricula = ?";
-        try (Connection conn = ConexionBD.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, matricula);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    String dist = rs.getString("distribucion_clases");
-                    if (dist != null && !dist.trim().isEmpty()) {
-                        distribucionAvion = dist;
-                    }
-                }
-            }
-        } catch (SQLException e) {
+        try {
+            distribucionAvion = clienteService.obtenerDistribucionAvion(matricula);
+        } catch (Exception e) {
             LOGGER.log(java.util.logging.Level.SEVERE, "Error al cargar configuracion de avion", e);
         }
 
         // Cargar asientos ocupados
         occupiedSeatsDb.clear();
-        String sqlOccupied = "SELECT numAsiento FROM pasajero WHERE matricula = ?";
-        try (Connection conn = ConexionBD.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sqlOccupied)) {
-            ps.setString(1, matricula);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    occupiedSeatsDb.add(rs.getString("numAsiento"));
-                }
-            }
-        } catch (SQLException e) {
+        try {
+            Set<String> occupied = clienteService.obtenerAsientosOcupados(matricula);
+            occupiedSeatsDb.addAll(occupied);
+        } catch (Exception e) {
             LOGGER.log(java.util.logging.Level.SEVERE, "Error al cargar asientos ocupados", e);
         }
     }
 
-    // Calcula si una clase de cabina del avión está AGOTADA (Capacidad == Ocupados)
+    /**
+     * Verifica si una clase de cabina específica está completamente reservada (ocupado == capacidad).
+     */
     private boolean isClaseAgotada(String claseComboName) {
         String key = "ECON";
         if (claseComboName.startsWith("VIP")) {
@@ -195,6 +167,9 @@ public final class PanelReserva extends JPanel {
         return totalCap > 0 && occupiedCount >= totalCap;
     }
 
+    /**
+     * Extrae el número de fila a partir del código de asiento (ej. "12A" -> 12).
+     */
     private static int extractRowFromSeat(String seat) {
         if (seat == null || seat.isEmpty()) return -1;
         StringBuilder sb = new StringBuilder();
@@ -212,7 +187,9 @@ public final class PanelReserva extends JPanel {
         }
     }
 
-    // Inicializa la Vista A (Formulario e Historial en Tarjetas)
+    /**
+     * Inicializa los componentes de la vista para la Vista A (Formulario de pasajero e historial de pasajeros).
+     */
     private void inicializarVistaA() {
         panelVistaA = new JPanel(new BorderLayout());
         panelVistaA.setBackground(C_FONDO);
@@ -449,7 +426,9 @@ public final class PanelReserva extends JPanel {
         panelVistaA.add(pConfirm, BorderLayout.SOUTH);
     }
 
-    // Inicializa la Vista B (Selección gráfica de asientos)
+    /**
+     * Inicializa los componentes de la vista para la Vista B (Pantalla de selección de asientos en cabina).
+     */
     private void inicializarVistaB() {
         panelVistaB = new JPanel(new BorderLayout());
         panelVistaB.setBackground(C_FONDO);
@@ -515,13 +494,15 @@ public final class PanelReserva extends JPanel {
         panelVistaB.add(footer, BorderLayout.SOUTH);
     }
 
-    // Actualiza la visualización de las tarjetas en la Vista A
+    /**
+     * Refreshes las tarjetas visuales de pasajeros de la GUI en la Vista A basándose en el listado de pasajeros en memoria.
+     */
     private void actualizarListaPasajeros() {
         panelListaPasajeros.removeAll();
 
         for (int i = 0; i < grupoFamiliar.size(); i++) {
             final int index = i;
-            PasajeroTemporal p = grupoFamiliar.get(i);
+            PasajeroDTO p = grupoFamiliar.get(i);
 
             JPanel card = new JPanel(new BorderLayout(10, 0));
             card.setBackground(C_TARJETA);
@@ -535,15 +516,15 @@ public final class PanelReserva extends JPanel {
             pDetails.setLayout(new BoxLayout(pDetails, BoxLayout.Y_AXIS));
             pDetails.setBackground(C_TARJETA);
 
-            String claseLimpia = obtenerNombreLimpioClase(p.clase);
-            String tituloPasajero = String.format("%s (%s - %s)", p.nombre, p.tipo, claseLimpia);
+            String claseLimpia = obtenerNombreLimpioClase(p.getClase());
+            String tituloPasajero = String.format("%s (%s - %s)", p.getNombre(), p.getTipo(), claseLimpia);
             
             JLabel lblNombre = new JLabel(tituloPasajero);
             lblNombre.setFont(new Font("SansSerif", Font.BOLD, 12));
             lblNombre.setForeground(C_TEXTO);
             pDetails.add(lblNombre);
 
-            String desc = p.sillaRuedas ? "Requerimiento: Silla de Ruedas" : "Sin requerimientos especiales";
+            String desc = p.isSillaRuedas() ? "Requerimiento: Silla de Ruedas" : "Sin requerimientos especiales";
             JLabel lblDesc = new JLabel(desc);
             lblDesc.setFont(new Font("SansSerif", Font.PLAIN, 11));
             lblDesc.setForeground(C_MUTED);
@@ -563,12 +544,12 @@ public final class PanelReserva extends JPanel {
             btnSeat.setCursor(new Cursor(Cursor.HAND_CURSOR));
             btnSeat.setPreferredSize(new Dimension(140, 28));
 
-            if (p.asiento == null) {
+            if (p.getAsiento() == null) {
                 btnSeat.setText("🪑 Seleccionar");
                 btnSeat.setBackground(C_AZUL);
                 btnSeat.setForeground(C_TEXTO);
             } else {
-                btnSeat.setText("✅ Asiento: " + p.asiento);
+                btnSeat.setText("✅ Asiento: " + p.getAsiento());
                 btnSeat.setBackground(C_VERDE);
                 btnSeat.setForeground(C_TEXTO);
             }
@@ -614,6 +595,9 @@ public final class PanelReserva extends JPanel {
         panelListaPasajeros.repaint();
     }
 
+    /**
+     * Limpia la cadena de clase seleccionada para devolver una representación simple.
+     */
     private String obtenerNombreLimpioClase(String claseCombo) {
         if (claseCombo == null) return "Económica";
         if (claseCombo.startsWith("VIP")) return "VIP";
@@ -621,30 +605,28 @@ public final class PanelReserva extends JPanel {
         return "Económica";
     }
 
+    /**
+     * Muestra la Vista B para la selección de asiento.
+     */
     private void irAElegirAsiento() {
         inicializarMapaAsientos();
         cardLayoutInterno.show(this, "VISTA_B");
     }
 
-    // Genera dinámicamente los botones del mapa de cabina
+    /**
+     * Genera y dibuja dinámicamente el mapa de distribución de asientos de la cabina del avión.
+     */
     private void inicializarMapaAsientos() {
         panelContenedorMapa.removeAll();
 
         Set<String> occupiedSeats = new HashSet<>();
         String distribucion = distribucionAvion; 
 
-        // Consulta de asientos ocupados
-        try (Connection conn = ConexionBD.getConnection()) {
-            String sqlOccupied = "SELECT numAsiento FROM pasajero WHERE matricula = ?";
-            try (PreparedStatement ps = conn.prepareStatement(sqlOccupied)) {
-                ps.setString(1, matricula);
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        occupiedSeats.add(rs.getString("numAsiento"));
-                    }
-                }
-            }
-        } catch (SQLException e) {
+        // Consulta de asientos ocupados mediante el Service
+        try {
+            Set<String> occupied = clienteService.obtenerAsientosOcupados(matricula);
+            occupiedSeats.addAll(occupied);
+        } catch (Exception e) {
             LOGGER.log(java.util.logging.Level.SEVERE, "Error al cargar la ocupacion de cabina", e);
             JOptionPane.showMessageDialog(this,
                     "Error al cargar la ocupación de cabina:\n" + e.getMessage(),
@@ -656,14 +638,14 @@ public final class PanelReserva extends JPanel {
         // Agregar también los asientos ocupados por el grupo familiar en memoria
         for (int i = 0; i < grupoFamiliar.size(); i++) {
             if (i == pasajeroEditandoIndex) continue;
-            String seat = grupoFamiliar.get(i).asiento;
+            String seat = grupoFamiliar.get(i).getAsiento();
             if (seat != null) {
                 occupiedSeats.add(seat);
             }
         }
 
         // Resolver sección permitida del avión según la clase del pasajero actual
-        String pClass = grupoFamiliar.get(pasajeroEditandoIndex).clase;
+        String pClass = grupoFamiliar.get(pasajeroEditandoIndex).getClase();
         boolean planeHasVip = distribucion.toLowerCase().contains("vip");
         boolean planeHasEjec = distribucion.toLowerCase().contains("ejec") || distribucion.toLowerCase().contains("exec");
         boolean planeHasEcon = distribucion.toLowerCase().contains("econ") || distribucion.toLowerCase().contains("turista") || distribucion.toLowerCase().contains("standard");
@@ -747,6 +729,9 @@ public final class PanelReserva extends JPanel {
         panelContenedorMapa.repaint();
     }
 
+    /**
+     * Crea un botón de selección de asiento con el estado y colores correspondientes.
+     */
     private JToggleButton crearBotonAsiento(String seatName, boolean sectionAllowed, Set<String> occupiedSeats) {
         JToggleButton btn = new JToggleButton(seatName);
         btn.setFont(new Font("SansSerif", Font.BOLD, 10));
@@ -774,14 +759,20 @@ public final class PanelReserva extends JPanel {
         return btn;
     }
 
+    /**
+     * Confirma la selección del asiento y devuelve la vista a la Vista A.
+     */
     private void seleccionarAsiento(String seatName) {
         if (pasajeroEditandoIndex >= 0 && pasajeroEditandoIndex < grupoFamiliar.size()) {
-            grupoFamiliar.get(pasajeroEditandoIndex).asiento = seatName;
+            grupoFamiliar.get(pasajeroEditandoIndex).setAsiento(seatName);
         }
         actualizarListaPasajeros();
         cardLayoutInterno.show(this, "VISTA_A");
     }
 
+    /**
+     * Toma las entradas del formulario, crea un DTO del pasajero y lo agrega al grupo.
+     */
     private void agregarPasajero() {
         String nombre = txtNombre.getText().trim();
         if (nombre.isEmpty()) {
@@ -795,7 +786,7 @@ public final class PanelReserva extends JPanel {
         String clase      = (String) comboClase.getSelectedItem();
         boolean sillaVal  = chkSilla.isSelected();
 
-        grupoFamiliar.add(new PasajeroTemporal(nombre, tipo, clase, sillaVal));
+        grupoFamiliar.add(new PasajeroDTO(nombre, tipo, clase, sillaVal));
         actualizarListaPasajeros();
 
         // Limpiar campos formulario
@@ -810,8 +801,9 @@ public final class PanelReserva extends JPanel {
         txtNombre.requestFocusInWindow();
     }
 
-    // Metodo eliminarPasajero removido por no ser utilizado.
-
+    /**
+     * Llama a la capa de servicio para guardar todas las reservas en una transacción de base de datos.
+     */
     private void confirmarReserva() {
         if (grupoFamiliar.isEmpty()) {
             JOptionPane.showMessageDialog(this,
@@ -820,8 +812,8 @@ public final class PanelReserva extends JPanel {
             return;
         }
 
-        for (PasajeroTemporal p : grupoFamiliar) {
-            if (p.asiento == null) {
+        for (PasajeroDTO p : grupoFamiliar) {
+            if (p.getAsiento() == null) {
                 JOptionPane.showMessageDialog(this,
                         "Por favor selecciona un asiento para cada pasajero del grupo.",
                         "Asiento pendiente", JOptionPane.WARNING_MESSAGE);
@@ -829,32 +821,8 @@ public final class PanelReserva extends JPanel {
             }
         }
 
-        String pnr = generarPNR();
-
-        final String sql =
-            "INSERT INTO pasajero " +
-            "  (nombre, numAsiento, nivelPrioridad, timestampLlegada, " +
-            "   matricula, pnr, sillaRuedas, upgrade) " +
-            "VALUES (?, ?, ?, NULL, ?, ?, ?, 0)";
-
-        Connection conn = null;
         try {
-            conn = ConexionBD.getConnection();
-            conn.setAutoCommit(false);
-
-            try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                for (PasajeroTemporal p : grupoFamiliar) {
-                    ps.setString(1, p.nombre);
-                    ps.setString(2, p.asiento);
-                    ps.setInt   (3, extraerPrioridad(p.clase));
-                    ps.setString(4, matricula);
-                    ps.setString(5, pnr);
-                    ps.setBoolean(6, p.sillaRuedas);
-                    ps.addBatch();
-                }
-                ps.executeBatch();
-                conn.commit();
-            }
+            String pnr = clienteService.procesarReservaTransaccional(matricula, grupoFamiliar);
 
             String mensaje = """
                     Reserva completada!
@@ -875,44 +843,16 @@ public final class PanelReserva extends JPanel {
 
             parent.showCartelera();
 
-        } catch (SQLException ex) {
-            if (conn != null) {
-                try {
-                    conn.rollback();
-                } catch (SQLException r) {
-                    LOGGER.log(java.util.logging.Level.WARNING, "Error al hacer rollback de la transaccion", r);
-                }
-            }
+        } catch (Exception ex) {
             JOptionPane.showMessageDialog(this,
                     "Error al guardar la reserva:\n\n" + ex.getMessage(),
                     "Error de BD", JOptionPane.ERROR_MESSAGE);
-        } finally {
-            if (conn != null) {
-                try {
-                    conn.close();
-                } catch (SQLException e) {
-                    LOGGER.log(java.util.logging.Level.WARNING, "Error al cerrar la conexion", e);
-                }
-            }
         }
     }
 
-    private static String generarPNR() {
-        String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-        Random rnd = new Random();
-        StringBuilder sb = new StringBuilder("SQ-");
-        for (int i = 0; i < 4; i++) sb.append(chars.charAt(rnd.nextInt(chars.length())));
-        return sb.toString();
-    }
-
-    private static int extraerPrioridad(String claseTexto) {
-        if (claseTexto != null) {
-            if (claseTexto.startsWith("VIP"))        return 1;
-            if (claseTexto.startsWith("Ejecutiva"))  return 2;
-        }
-        return 3;
-    }
-
+    /**
+     * Crea etiquetas estilizadas para el formulario.
+     */
     private JLabel mkLabel(String texto) {
         JLabel l = new JLabel(texto);
         l.setForeground(C_MUTED);
@@ -920,6 +860,9 @@ public final class PanelReserva extends JPanel {
         return l;
     }
 
+    /**
+     * Crea campos de texto estilizados.
+     */
     private JTextField mkTextField() {
         JTextField f = new JTextField();
         f.setBackground(C_GRIS);
@@ -932,6 +875,9 @@ public final class PanelReserva extends JPanel {
         return f;
     }
 
+    /**
+     * Aplica el estilo por defecto a los botones.
+     */
     private void aplicarEstiloBoton(JButton btn, Color bg, int fontSize) {
         btn.setFont(new Font("SansSerif", Font.BOLD, fontSize));
         btn.setBackground(bg);

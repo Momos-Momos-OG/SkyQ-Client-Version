@@ -1,21 +1,18 @@
 package skyq.cliente.view;
 
-import skyq.cliente.db.ConexionBD;
-
-import javax.swing.*;
-import javax.swing.border.EmptyBorder;
 import java.awt.*;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import javax.swing.*;
+import javax.swing.border.EmptyBorder;
+import skyq.cliente.model.VueloDTO;
+import skyq.cliente.service.ClienteService;
 
 /**
- * VentanaCliente - Portal B2C del Pasajero (SkyQ Standalone). Reload.
- * Dependencias externas: NINGUNA. Solo JDK 17 + JDBC SQL Server driver.
- * Sincronizacion: javax.swing.Timer cada 3 s. Ciclo de vida via addNotify/removeNotify.
+ * VentanaCliente - Interfaz del portal del pasajero B2C (SkyQ Standalone).
+ * Actúa como la ventana principal que muestra la cartelera de vuelos programados.
+ * Se adhiere estrictamente a MVC al delegar la carga de datos a ClienteService
+ * y utilizar VueloDTO para el intercambio de datos.
  */
 public final class VentanaCliente extends JFrame {
 
@@ -26,11 +23,9 @@ public final class VentanaCliente extends JFrame {
     static final Color C_FONDO        = new Color(13,  17,  23);
     static final Color C_TARJETA      = new Color(22,  27,  34);
     static final Color C_AZUL         = new Color(31, 111, 235);
-    static final Color C_GRIS         = new Color(33,  38,  45);
     static final Color C_TEXTO        = new Color(240, 246, 252);
     static final Color C_MUTED        = new Color(139, 148, 158);
     static final Color C_BORDE        = new Color(48,   54,  61);
-    static final Color C_FILA_ALTERNA = new Color(27,   32,  40);
 
     private final Timer             timerRecarga;
     private final CardLayout        cardLayout;
@@ -38,23 +33,15 @@ public final class VentanaCliente extends JFrame {
 
     // Contenedor vertical para las tarjetas de vuelo
     private final JPanel            panelContenedorVuelos;
-    private final transient List<VueloTemporal> listaVuelos = new ArrayList<>();
+    private final transient List<VueloDTO> listaVuelos = new ArrayList<>();
     private String                  codigoVueloExpandido = null;
 
-    private static class VueloTemporal {
-        final String codigoVuelo;
-        final String destino;
-        final String fechaSalida;
-        final String matricula;
+    private final transient ClienteService clienteService = new ClienteService();
 
-        VueloTemporal(String codigoVuelo, String destino, String fechaSalida, String matricula) {
-            this.codigoVuelo = codigoVuelo;
-            this.destino = destino;
-            this.fechaSalida = fechaSalida;
-            this.matricula = matricula;
-        }
-    }
-
+    /**
+     * Construye la ventana principal del cliente, inicializa componentes y configura
+     * el temporizador para recargar automáticamente la cartelera.
+     */
     public VentanaCliente() {
         setTitle("SkyQ - Portal del Pasajero");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -101,6 +88,10 @@ public final class VentanaCliente extends JFrame {
         timerRecarga.setInitialDelay(0);
     }
 
+    /**
+     * Sobrescribe addNotify para iniciar el temporizador de actualización de vuelos
+     * bajo las condiciones adecuadas.
+     */
     @Override
     public void addNotify() {
         super.addNotify();
@@ -117,13 +108,19 @@ public final class VentanaCliente extends JFrame {
         }
     }
 
+    /**
+     * Sobrescribe removeNotify para detener el temporizador de actualización automática.
+     */
     @Override
     public void removeNotify() {
         if (timerRecarga.isRunning()) timerRecarga.stop();
         super.removeNotify();
     }
 
-    // Regresa a la cartelera y limpia el PanelReserva anterior
+    /**
+     * Navega de regreso a la pantalla de la cartelera de vuelos ("CARTELERA"),
+     * limpia cualquier panel de reservas anterior y reinicia el temporizador.
+     */
     public void showCartelera() {
         codigoVueloExpandido = null;
         cardLayout.show(cardPanel, "CARTELERA");
@@ -140,7 +137,9 @@ public final class VentanaCliente extends JFrame {
         cargarVuelos();
     }
 
-    // Barra superior oscura con titulo y boton de cierre
+    /**
+     * Crea la barra de título personalizada en la parte superior.
+     */
     private JPanel crearBarraTitulo() {
         JPanel barra = new JPanel(new BorderLayout());
         barra.setBackground(C_TARJETA);
@@ -176,7 +175,9 @@ public final class VentanaCliente extends JFrame {
         return barra;
     }
 
-    // Titulo y subtitulo encima de la cartelera
+    /**
+     * Crea los encabezados de título y subtítulo encima de la lista de la cartelera.
+     */
     private JPanel crearEncabezado() {
         JPanel p = new JPanel(new BorderLayout());
         p.setBackground(C_FONDO);
@@ -195,40 +196,33 @@ public final class VentanaCliente extends JFrame {
         return p;
     }
 
-    // Consulta la BD y repobla la lista de vuelos
+    /**
+     * Carga los vuelos desde la base de datos a través de la capa de servicio.
+     * Vuelve a llenar la lista de vuelos y activa el renderizado de la UI.
+     */
     private void cargarVuelos() {
-        final String sql = "SELECT matricula, codigoVuelo, fechaSalida, destino FROM vuelos WHERE estado = 'Programado'";
         listaVuelos.clear();
-
-        try (Connection conn = ConexionBD.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-
-            while (rs.next()) {
-                listaVuelos.add(new VueloTemporal(
-                        rs.getString("codigoVuelo"),
-                        rs.getString("destino"),
-                        rs.getString("fechaSalida"),
-                        rs.getString("matricula")
-                ));
-            }
-        } catch (SQLException ex) {
+        try {
+            List<VueloDTO> vuelos = clienteService.obtenerVuelosProgramados();
+            listaVuelos.addAll(vuelos);
+        } catch (Exception ex) {
             LOGGER.log(java.util.logging.Level.SEVERE, "Error de conexion o consulta de BD", ex);
             JOptionPane.showMessageDialog(this,
                     "Error de conexión o consulta de BD:\n" + ex.getMessage(),
                     "Error de Base de Datos",
                     JOptionPane.ERROR_MESSAGE);
         }
-
         renderizarVuelos();
     }
 
-    // Renderiza la lista de vuelos en tarjetas
+    /**
+     * Itera sobre los vuelos cargados y los renderiza como componentes de tarjetas expandibles.
+     */
     private void renderizarVuelos() {
         panelContenedorVuelos.removeAll();
 
-        for (VueloTemporal v : listaVuelos) {
-            boolean isExpanded = v.codigoVuelo.equals(codigoVueloExpandido);
+        for (VueloDTO v : listaVuelos) {
+            boolean isExpanded = v.getCodigoVuelo().equals(codigoVueloExpandido);
             JPanel card = crearTarjetaVuelo(v, isExpanded);
             panelContenedorVuelos.add(card);
             panelContenedorVuelos.add(Box.createVerticalStrut(10));
@@ -238,8 +232,10 @@ public final class VentanaCliente extends JFrame {
         panelContenedorVuelos.repaint();
     }
 
-    // Crea el diseño de tarjeta expandible para cada vuelo
-    private JPanel crearTarjetaVuelo(VueloTemporal v, boolean isExpanded) {
+    /**
+     * Construye el componente de tarjeta expandible visual que representa un solo vuelo.
+     */
+    private JPanel crearTarjetaVuelo(VueloDTO v, boolean isExpanded) {
         JPanel card = new JPanel();
         card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
         card.setBackground(C_TARJETA);
@@ -257,12 +253,12 @@ public final class VentanaCliente extends JFrame {
         pInfoBasica.setLayout(new BoxLayout(pInfoBasica, BoxLayout.Y_AXIS));
         pInfoBasica.setBackground(C_TARJETA);
 
-        JLabel lblDestino = new JLabel("Destino: " + v.destino);
+        JLabel lblDestino = new JLabel("Destino: " + v.getDestino());
         lblDestino.setFont(new Font("SansSerif", Font.BOLD, 13));
         lblDestino.setForeground(C_TEXTO);
         pInfoBasica.add(lblDestino);
 
-        JLabel lblFecha = new JLabel("Salida: " + v.fechaSalida);
+        JLabel lblFecha = new JLabel("Salida: " + v.getFechaSalida());
         lblFecha.setFont(new Font("SansSerif", Font.PLAIN, 11));
         lblFecha.setForeground(C_MUTED);
         pInfoBasica.add(lblFecha);
@@ -287,12 +283,12 @@ public final class VentanaCliente extends JFrame {
             pInfoExtra.setLayout(new BoxLayout(pInfoExtra, BoxLayout.Y_AXIS));
             pInfoExtra.setBackground(C_TARJETA);
 
-            JLabel lblCodigo = new JLabel("Vuelo: " + v.codigoVuelo);
+            JLabel lblCodigo = new JLabel("Vuelo: " + v.getCodigoVuelo());
             lblCodigo.setFont(new Font("SansSerif", Font.PLAIN, 11));
             lblCodigo.setForeground(C_TEXTO);
             pInfoExtra.add(lblCodigo);
 
-            JLabel lblMatricula = new JLabel("Aeronave: " + v.matricula);
+            JLabel lblMatricula = new JLabel("Aeronave: " + v.getMatricula());
             lblMatricula.setFont(new Font("SansSerif", Font.PLAIN, 11));
             lblMatricula.setForeground(C_MUTED);
             pInfoExtra.add(lblMatricula);
@@ -318,7 +314,7 @@ public final class VentanaCliente extends JFrame {
             });
             btnComprar.addActionListener(e -> {
                 timerRecarga.stop();
-                PanelReserva panelReserva = new PanelReserva(VentanaCliente.this, v.matricula, v.codigoVuelo);
+                PanelReserva panelReserva = new PanelReserva(VentanaCliente.this, v.getMatricula(), v.getCodigoVuelo());
                 cardPanel.add(panelReserva, "RESERVA");
                 cardLayout.show(cardPanel, "RESERVA");
             });
@@ -335,7 +331,7 @@ public final class VentanaCliente extends JFrame {
                     codigoVueloExpandido = null;
                     timerRecarga.start();
                 } else {
-                    codigoVueloExpandido = v.codigoVuelo;
+                    codigoVueloExpandido = v.getCodigoVuelo();
                     timerRecarga.stop();
                 }
                 renderizarVuelos();
@@ -348,6 +344,9 @@ public final class VentanaCliente extends JFrame {
         return card;
     }
 
+    /**
+     * Método principal para lanzar la aplicación standalone del Portal del Pasajero SkyQ.
+     */
     public static void main(String[] args) {
         try {
             UIManager.setLookAndFeel(UIManager.getCrossPlatformLookAndFeelClassName());
